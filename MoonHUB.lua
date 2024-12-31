@@ -65,7 +65,7 @@ local Slider = Tab:CreateSlider({
         -- Set the humanoid's WalkSpeed to the current value of the slider
         humanoid.WalkSpeed = Value
     end
-}, "Slider") -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+}, "WalkSpeed") -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
 
 Tab:CreateDivider()
 
@@ -87,59 +87,47 @@ local Slider = Tab:CreateSlider({
         -- Set the humanoid's WalkSpeed to the current value of the slider
         humanoid.JumpPower = Value
     end
-}, "Slider") -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+}, "JumpPower") -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
 
 Tab:CreateDivider()
 
--- Flying
-local player = game.Players.LocalPlayer
-local char = player.Character or player.CharacterAdded:Wait()
-local hrp = char:WaitForChild("HumanoidRootPart")
-local flying, bv, bg = false, nil, nil
+-- Flying Variables
+local flying = false
+local bv, bg = nil, nil
 local flySpeed = 50 -- Default Fly Speed
 
 -- Function to enable or disable flying
 local function setFly(state)
+    local player = game.Players.LocalPlayer
+    local char = player.Character or player.CharacterAdded:Wait()
+    local hrp = char:WaitForChild("HumanoidRootPart")
+
     if flying == state then return end -- Prevent multiple toggles
     flying = state
 
     if flying then
+        -- Create BodyVelocity and BodyGyro
         bv = Instance.new("BodyVelocity", hrp)
         bg = Instance.new("BodyGyro", hrp)
         bv.MaxForce = Vector3.new(1e5, 1e5, 1e5)
         bg.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
         bg.P = 3000
     else
+        -- Destroy the flying components
         if bv then bv:Destroy() end
         if bg then bg:Destroy() end
         bv, bg = nil, nil
     end
 end
 
--- Create toggle for flying
-local Toggle = Tab:CreateToggle({
-    Name = "Fly Toggle",
-    Description = "Enable or disable flying",
-    CurrentValue = false, -- Default off
-    Callback = function(Value)
-        setFly(Value) -- Enable or disable flying based on the toggle state
-    end
-}, "FlyToggle") -- Unique flag for saving configuration
-
--- Fly speed slider
-local Slider = Tab:CreateSlider({
-    Name = "Fly Speed",
-    Range = {10, 200}, -- The Minimum And Maximum Values Respectively
-    Increment = 5, -- Basically The Changing Value/Rounding Off
-    CurrentValue = flySpeed, -- The Starting Value
-    Callback = function(Value)
-        flySpeed = Value -- Update the fly speed value when slider is adjusted
-    end
-}, "FlySpeed") -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
-
 -- Update flying behavior during RenderStepped
-game:GetService("RunService").RenderStepped:Connect(function()
+local function updateFly()
     if flying and bv and bg then
+        local player = game.Players.LocalPlayer
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+
         local mv, cam = Vector3.zero, workspace.CurrentCamera
         local uis = game:GetService("UserInputService")
         if uis:IsKeyDown(Enum.KeyCode.W) then mv += cam.CFrame.LookVector end
@@ -148,10 +136,40 @@ game:GetService("RunService").RenderStepped:Connect(function()
         if uis:IsKeyDown(Enum.KeyCode.D) then mv += cam.CFrame.RightVector end
         if uis:IsKeyDown(Enum.KeyCode.Space) then mv += Vector3.new(0, 1, 0) end
         if uis:IsKeyDown(Enum.KeyCode.LeftControl) then mv -= Vector3.new(0, 1, 0) end
-        bv.Velocity = mv.Magnitude > 0 and mv.Unit * flySpeed or Vector3.zero -- Use the updated flySpeed value
+        bv.Velocity = mv.Magnitude > 0 and mv.Unit * flySpeed or Vector3.zero
         bg.CFrame = CFrame.new(hrp.Position, hrp.Position + cam.CFrame.LookVector)
     end
+end
+
+game:GetService("RunService").RenderStepped:Connect(updateFly)
+
+-- Reapply fly setup on respawn
+game.Players.LocalPlayer.CharacterAdded:Connect(function()
+    if flying then
+        setFly(true) -- Reinitialize flying for the new character
+    end
 end)
+
+-- Create toggle for flying
+Tab:CreateToggle({
+    Name = "Fly Toggle",
+    Description = "Enable or disable flying",
+    CurrentValue = false, -- Default off
+    Callback = function(Value)
+        setFly(Value)
+    end
+}, "FlyToggle")
+
+-- Fly speed slider
+Tab:CreateSlider({
+    Name = "Fly Speed",
+    Range = {10, 200}, -- The Minimum And Maximum Values Respectively
+    Increment = 5, -- The Changing Value/Rounding Off
+    CurrentValue = flySpeed, -- The Starting Value
+    Callback = function(Value)
+        flySpeed = Value -- Update the fly speed value when slider is adjusted
+    end
+}, "FlySpeed")
 
 Tab:CreateDivider()
 
@@ -263,118 +281,116 @@ local Button = Tab:CreateButton({
 
 Tab:CreateDivider()
 
-local targetPlayer = nil
-local following = false
+local player = game.Players.LocalPlayer
+local targetPlayerName = nil -- Store the name of the player to follow
+local following = false -- State for the follow toggle
 
--- Function to find a player by partial username or display name
+-- Helper function to find a player by name or display name
 local function findPlayerByName(partialName)
-    for _, player in ipairs(game.Players:GetPlayers()) do
-        if string.find(player.Name:lower(), partialName:lower()) or string.find(player.DisplayName:lower(), partialName:lower()) then
-            return player
+    for _, targetPlayer in ipairs(game.Players:GetPlayers()) do
+        if string.find(targetPlayer.Name:lower(), partialName:lower()) or string.find(targetPlayer.DisplayName:lower(), partialName:lower()) then
+            return targetPlayer
         end
     end
     return nil -- Return nil if no match is found
 end
 
--- Function to teleport to and follow the target player
-local function toggleFollow(state)
-    local localPlayer = game.Players.LocalPlayer
-    local target = findPlayerByName(targetPlayer)
-
-    if state and target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-        -- Teleport to target and start following
-        localPlayer.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame
-
-        following = true
+-- Function to follow the target player
+local function followPlayer()
+    task.spawn(function()
         while following do
-            task.wait(0.1)
-            if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-                localPlayer.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame
+            task.wait(0.1) -- Adjust the frequency of updates as needed
+
+            local targetPlayer = findPlayerByName(targetPlayerName)
+            if not targetPlayer then
+                print("Target player not found:", targetPlayerName)
+                following = false
+                break
+            end
+
+            local targetCharacter = targetPlayer.Character
+            local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
+            local localCharacter = player.Character
+            local localRoot = localCharacter and localCharacter:FindFirstChild("HumanoidRootPart")
+
+            if targetRoot and localRoot then
+                -- Move the local player towards the target player's position
+                localRoot.CFrame = targetRoot.CFrame
             else
-                following = false -- Stop following if target is no longer valid
+                print("Invalid character or missing parts for either player.")
+                following = false
+                break
             end
         end
-    else
-        following = false
-        print("Stopped following or invalid player.")
-    end
+    end)
 end
 
--- Input box to specify player name
+-- Input box for entering the target player's name
 Tab:CreateInput({
     Name = "Player Name",
-    Description = "Enter Username OR Display Name",
-    PlaceholderText = "Enter Here",
+    Description = "Enter the name of the player to follow",
+    PlaceholderText = "Enter player name",
     Callback = function(value)
-        targetPlayer = value
+        targetPlayerName = value
+        print("Target player set to:", targetPlayerName)
     end
-}, "PlayerNameInput")
+}, "FollowPlayerInput")
 
--- Toggle to start/stop following
+-- Toggle for enabling/disabling follow
 Tab:CreateToggle({
     Name = "Follow Player",
-    Description = "Toggle to teleport to and follow the specified player.",
+    Description = "Toggle to follow the specified player",
     CurrentValue = false, -- Default off
     Callback = function(state)
-        if targetPlayer then
-            toggleFollow(state)
+        following = state
+        if following then
+            if targetPlayerName then
+                print("Started following:", targetPlayerName)
+                followPlayer()
+            else
+                print("No player name entered.")
+                following = false
+            end
         else
-            print("Please enter a valid player name or display name.")
+            print("Stopped following.")
         end
     end
 }, "FollowPlayerToggle")
 
 Tab:CreateDivider()
 
-local function toggleInvisibility(state)
+local function setInvincibility(state)
     local player = game.Players.LocalPlayer
+
+    -- Function to apply invincibility logic to the humanoid
+    local function applyInvincibility(humanoid)
+        if humanoid then
+            if state then
+                humanoid.Health = math.huge
+                humanoid:GetPropertyChangedSignal("Health"):Connect(function()
+                    if invincibilityToggle then
+                        humanoid.Health = math.huge
+                    end
+                end)
+                print("Invincibility enabled.")
+            else
+                humanoid.Health = humanoid.MaxHealth -- Reset to normal
+                print("Invincibility disabled.")
+            end
+        end
+    end
+
+    -- Handle current character
     local character = player.Character or player.CharacterAdded:Wait()
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    applyInvincibility(humanoid)
 
-    -- Ensure essential components exist
-    local humanoid = character:FindFirstChild("Humanoid")
-    if not humanoid then
-        warn("Humanoid not found: Cannot toggle invisibility.")
-        return
-    end
-
-    if state then
-        -- Make the character invisible and disable collisions
-        for _, part in pairs(character:GetDescendants()) do
-            if part:IsA("BasePart") or part:IsA("MeshPart") then
-                part.Transparency = 1 -- Make parts invisible
-                part.CanCollide = false -- Disable collisions
-            elseif part:IsA("Decal") or part:IsA("Texture") then
-                part.Transparency = 1 -- Hide textures/decals
-            end
-        end
-
-        -- Disable animations for full invisibility
-        humanoid:ChangeState(Enum.HumanoidStateType.Physics)
-    else
-        -- Restore visibility and collisions
-        for _, part in pairs(character:GetDescendants()) do
-            if part:IsA("BasePart") or part:IsA("MeshPart") then
-                part.Transparency = 0 -- Restore visibility
-                part.CanCollide = true -- Restore collisions
-            elseif part:IsA("Decal") or part:IsA("Texture") then
-                part.Transparency = 0
-            end
-        end
-
-        -- Restore animations
-        humanoid:ChangeState(Enum.HumanoidStateType.Running)
-    end
+    -- Handle respawn
+    player.CharacterAdded:Connect(function(newCharacter)
+        local newHumanoid = newCharacter:WaitForChild("Humanoid", 5)
+        applyInvincibility(newHumanoid)
+    end)
 end
-
--- Add invisibility toggle to the UI
-local Toggle = Tab:CreateToggle({
-    Name = "Invisibility Toggle",
-    Description = "Become invisible to other players while moving",
-    CurrentValue = false, -- Default off
-    Callback = function(Value)
-        toggleInvisibility(Value)
-    end
-}, "InvisibilityToggle") -- Unique flag for configuration saving
 
 Tab:CreateDivider()
 
@@ -667,51 +683,63 @@ local Toggle = Tab:CreateToggle({
 
 Tab:CreateDivider()
 
--- Configuration
-Name = "Aimbot Toggle",
-Description = "Toggles the aimbot functionality",
-CurrentValue = false,
-Callback = function(Value)
-    aimbotToggle = Value -- Update toggle state
-    print("Aimbot toggled:", aimbotToggle)
-end
-}, "AimbotToggle")
-
--- Aimbot logic
-local function lockOnTarget()
+local aimbotToggle = false -- Initial state of aimbot toggle
 local player = game.Players.LocalPlayer
-local mouse = player:GetMouse()
-local closestTarget = nil
-local shortestDistance = math.huge
 
-for _, target in pairs(game.Players:GetPlayers()) do
-    if target ~= player and not isOnTeam(target) then
-        local character = target.Character
+-- Helper function to check if a player is on the same team
+local function isOnTeam(target)
+    if player.Team and target.Team then
+        return player.Team == target.Team
+    end
+    return false
+end
 
-        if character and character:FindFirstChild("Head") then
-            local headPosition = character.Head.Position
-            local playerPosition = player.Character and player.Character:FindFirstChild("Head") and player.Character.Head.Position
+-- Function to find the closest target
+local function findClosestTarget()
+    local shortestDistance = math.huge
+    local closestTarget = nil
 
-            if playerPosition then
-                local distance = (headPosition - playerPosition).Magnitude
+    for _, target in pairs(game.Players:GetPlayers()) do
+        if target ~= player and not isOnTeam(target) then
+            local character = target.Character
+            local targetHead = character and character:FindFirstChild("Head")
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            local localHead = player.Character and player.Character:FindFirstChild("Head")
+
+            if targetHead and humanoid and humanoid.Health > 0 and localHead then
+                local distance = (targetHead.Position - localHead.Position).Magnitude
                 if distance < shortestDistance then
                     shortestDistance = distance
-                    closestTarget = character.Head
+                    closestTarget = targetHead
                 end
             end
         end
     end
+
+    return closestTarget
 end
 
-if closestTarget then
-    mouse.TargetFilter = closestTarget
-    workspace.CurrentCamera.CFrame = CFrame.new(workspace.CurrentCamera.CFrame.Position, closestTarget.Position)
-end
+-- Function to lock onto the target
+local function lockOnTarget()
+    if not aimbotToggle then return end
+
+    local target = findClosestTarget()
+    if target then
+        workspace.CurrentCamera.CFrame = CFrame.new(workspace.CurrentCamera.CFrame.Position, target.Position)
+    end
 end
 
--- Main loop
+-- Toggle for aimbot
+Tab:CreateToggle({
+    Name = "Aimbot Toggle",
+    Description = "Enable or disable aimbot functionality",
+    CurrentValue = false, -- Default off
+    Callback = function(Value)
+        aimbotToggle = Value
+    end
+}, "AimbotToggle")
+
+-- Main loop for aimbot
 game:GetService("RunService").RenderStepped:Connect(function()
-if aimbotToggle then
     lockOnTarget()
-end
 end)
